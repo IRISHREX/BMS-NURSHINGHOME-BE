@@ -125,30 +125,28 @@ exports.getDoctor = async (req, res, next) => {
 // @access  Admin
 exports.createDoctor = async (req, res, next) => {
   try {
-    const { userId, ...doctorData } = req.body;
+    const { name, email, phone, specialization, department, qualification, experience, consultationFee, availabilityStatus } = req.body;
 
-    // Check if user exists and is a doctor role
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new AppError('User not found', 404);
+    // Validate required fields
+    if (!name || !specialization || !department || !qualification) {
+      throw new AppError('Please provide all required fields', 400);
     }
-
-    if (user.role !== 'doctor') {
-      throw new AppError('User must have doctor role', 400);
-    }
-
-    // Check if doctor profile already exists
-    const existingDoctor = await Doctor.findOne({ user: userId });
-    if (existingDoctor) {
-      throw new AppError('Doctor profile already exists for this user', 400);
-    }
-
+    
+    // Create doctor without user initially (will be linked later)
     const doctor = await Doctor.create({
-      user: userId,
-      ...doctorData
+      name,
+      email,
+      phone,
+      specialization,
+      department,
+      qualification,
+      experience: experience || 0,
+      consultationFee: {
+        opd: consultationFee || 500,
+        ipd: (consultationFee || 500) * 2
+      },
+      availabilityStatus: availabilityStatus || 'available'
     });
-
-    await doctor.populate('user', 'firstName lastName email phone');
 
     res.status(201).json({
       success: true,

@@ -7,10 +7,10 @@ const validate = require('../middleware/validate');
 
 router.post('/', [
   authenticate,
-  body('patientId').isMongoId(),
-  body('doctorId').isMongoId(),
-  body('appointmentDate').isISO8601(),
-  body('reason').trim().notEmpty(),
+  body('patientId').isMongoId().withMessage('Valid patient ID is required'),
+  body('doctorId').isMongoId().withMessage('Valid doctor ID is required'),
+  body('appointmentDate').isISO8601().withMessage('Valid appointment date is required'),
+  body('reason').trim().notEmpty().withMessage('Reason for appointment is required'),
   validate
 ], appointmentController.createAppointment);
 

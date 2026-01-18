@@ -1,4 +1,4 @@
-const { Patient } = require('../models');
+const { Patient, Invoice, Bed } = require('../models');
 const { AppError } = require('../middleware/errorHandler');
 
 // @desc    Get all patients
@@ -70,12 +70,144 @@ exports.getPatient = async (req, res, next) => {
 // @access  Private
 exports.createPatient = async (req, res, next) => {
   try {
+    const { 
+      firstName, lastName, dateOfBirth, gender, phone, email, address, 
+      emergencyContact, bloodGroup, registrationType, medicalHistory, 
+      assignedDoctor, assignedBed 
+    } = req.body;
+
+    // Validate required fields
+    if (!firstName || !lastName || !dateOfBirth || !gender || !phone) {
+      throw new AppError('Please provide all required fields', 400);
+    }
+
     const patientData = {
-      ...req.body,
+      firstName,
+      lastName,
+      dateOfBirth,
+      gender: gender.toLowerCase(),
+      phone,
+      email,
+      address,
+      emergencyContact,
+      bloodGroup,
+      registrationType: registrationType || 'opd',
+      medicalHistory,
       registeredBy: req.user._id
     };
 
+    // Assign doctor if provided
+    if (assignedDoctor) {
+      patientData.assignedDoctor = assignedDoctor;
+    }
+
+    // Assign bed if IPD and bed provided
+    if (registrationType === 'ipd' && assignedBed) {
+      patientData.assignedBed = assignedBed;
+    }
+
     const patient = await Patient.create(patientData);
+    console.log(`👤 Patient created: ${patient._id} - ${patient.firstName} ${patient.lastName} (${registrationType})`);
+
+    // Update bed with current patient if IPD
+    if (registrationType === 'ipd' && assignedBed) {
+      try {
+        await Bed.findByIdAndUpdate(
+          assignedBed,
+          { 
+            currentPatient: patient._id,
+            status: 'occupied',
+            lastOccupied: new Date()
+          },
+          { new: true }
+        );
+      } catch (bedError) {
+        console.error('Failed to update bed status:', bedError);
+      }
+    }
+
+    // Auto-generate invoice for IPD patients
+    if (registrationType === 'ipd' && assignedBed) {
+      try {
+        // Calculate due date (30 days from now)
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 30);
+
+        // Get bed details for bed charges
+        const bed = await Bed.findById(assignedBed);
+        const bedChargePerDay = bed?.pricePerDay || 0;
+
+        const invoiceData = {
+          patient: patient._id,
+          type: 'ipd',
+          items: [
+            {
+              description: `Bed Charges - ${bed?.bedType || 'General'} (${bed?.bedNumber || 'N/A'})`,
+              category: 'bed_charges',
+              quantity: 1,
+              unitPrice: bedChargePerDay,
+              discount: 0,
+              tax: 0,
+              amount: bedChargePerDay
+            }
+          ],
+          subtotal: bedChargePerDay,
+          discountAmount: 0,
+          totalTax: 0,
+          totalAmount: bedChargePerDay,
+          dueAmount: bedChargePerDay,
+          status: 'draft',
+          dueDate: dueDate,
+          generatedBy: req.user._id,
+          notes: `Initial invoice for IPD admission of ${patient.firstName} ${patient.lastName}`
+        };
+
+        const createdInvoice = await Invoice.create(invoiceData);
+        console.log('✅ IPD Invoice created successfully:', createdInvoice._id);
+      } catch (invoiceError) {
+        console.error('❌ Failed to create IPD invoice:', invoiceError.message);
+        // Continue even if invoice creation fails
+      }
+    }
+
+    // Auto-generate invoice for OPD patients
+    if (registrationType === 'opd' || registrationType === 'emergency') {
+      try {
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 7);
+
+        const invoiceData = {
+          patient: patient._id,
+          type: registrationType,
+          items: [
+            {
+              description: `Consultation Fee`,
+              category: registrationType === 'emergency' ? 'other' : 'doctor_fee',
+              quantity: 1,
+              unitPrice: 0,
+              discount: 0,
+              tax: 0,
+              amount: 0
+            }
+          ],
+          subtotal: 0,
+          discountAmount: 0,
+          totalTax: 0,
+          totalAmount: 0,
+          dueAmount: 0,
+          status: 'draft',
+          dueDate: dueDate,
+          generatedBy: req.user._id,
+          notes: `Initial invoice for ${registrationType.toUpperCase()} registration of ${patient.firstName} ${patient.lastName}`
+        };
+
+        const createdInvoice = await Invoice.create(invoiceData);
+        console.log('✅ OPD Invoice created successfully:', createdInvoice._id);
+      } catch (invoiceError) {
+        console.error('❌ Failed to create OPD invoice:', invoiceError.message);
+        // Continue even if invoice creation fails
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -92,20 +224,50 @@ exports.createPatient = async (req, res, next) => {
 // @access  Private
 exports.updatePatient = async (req, res, next) => {
   try {
-    const patient = await Patient.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const { assignedBed } = req.body;
+    const patient = await Patient.findById(req.params.id);
 
     if (!patient) {
       throw new AppError('Patient not found', 404);
     }
 
+    // If bed assignment is changing
+    if (assignedBed && assignedBed !== patient.assignedBed?.toString()) {
+      // Release old bed if it exists
+      if (patient.assignedBed) {
+        await Bed.findByIdAndUpdate(
+          patient.assignedBed,
+          { 
+            currentPatient: null,
+            status: 'available',
+            lastOccupied: new Date()
+          },
+          { new: true }
+        );
+      }
+
+      // Assign new bed
+      await Bed.findByIdAndUpdate(
+        assignedBed,
+        { 
+          currentPatient: patient._id,
+          status: 'occupied',
+          lastOccupied: new Date()
+        },
+        { new: true }
+      );
+    }
+
+    const updatedPatient = await Patient.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
     res.json({
       success: true,
       message: 'Patient updated successfully',
-      data: { patient }
+      data: { patient: updatedPatient }
     });
   } catch (error) {
     next(error);
@@ -117,19 +279,33 @@ exports.updatePatient = async (req, res, next) => {
 // @access  Admin
 exports.deletePatient = async (req, res, next) => {
   try {
-    const patient = await Patient.findByIdAndUpdate(
-      req.params.id,
-      { status: 'inactive' },
-      { new: true }
-    );
+    const patient = await Patient.findById(req.params.id);
 
     if (!patient) {
       throw new AppError('Patient not found', 404);
     }
 
+    // Delete all invoices associated with this patient
+    await Invoice.deleteMany({ patient: patient._id });
+
+    // Release assigned bed if any
+    if (patient.assignedBed) {
+      await Bed.findByIdAndUpdate(
+        patient.assignedBed,
+        { 
+          currentPatient: null,
+          status: 'available'
+        },
+        { new: true }
+      );
+    }
+
+    // Actually delete the patient (not just deactivate)
+    await Patient.findByIdAndDelete(req.params.id);
+
     res.json({
       success: true,
-      message: 'Patient deactivated successfully'
+      message: 'Patient and associated invoices deleted successfully'
     });
   } catch (error) {
     next(error);

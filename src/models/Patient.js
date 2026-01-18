@@ -4,7 +4,7 @@ const patientSchema = new mongoose.Schema({
   patientId: {
     type: String,
     unique: true,
-    required: true
+    sparse: true
   },
   firstName: {
     type: String,
@@ -76,6 +76,14 @@ const patientSchema = new mongoose.Schema({
     enum: ['opd', 'ipd', 'emergency'],
     default: 'opd'
   },
+  assignedDoctor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Doctor'
+  },
+  assignedBed: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bed'
+  },
   registeredBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -107,10 +115,19 @@ patientSchema.virtual('age').get(function() {
 // Auto-generate patient ID
 patientSchema.pre('save', async function(next) {
   if (!this.patientId) {
-    const count = await mongoose.model('Patient').countDocuments();
+    const count = await this.constructor.countDocuments();
     this.patientId = `PAT${String(count + 1).padStart(6, '0')}`;
   }
   next();
+});
+
+// Delete invoices when patient is deleted
+patientSchema.post('findByIdAndDelete', async function(doc) {
+  if (doc) {
+    // Require Invoice model to avoid circular dependency
+    const Invoice = require('./Invoice');
+    await Invoice.deleteMany({ patient: doc._id });
+  }
 });
 
 // Index for search

@@ -17,11 +17,20 @@ const getInvoices = asyncHandler(async (req, res) => {
   }
 
   const invoices = await Invoice.find(query)
-    .populate('patient', 'name patientId')
-    .populate('generatedBy', 'name email')
+    .populate('patient', 'firstName lastName patientId phone')
+    .populate('generatedBy', 'firstName lastName email')
     .sort({ createdAt: -1 });
+  
+  // Format response with properly structured patient data
+  const formattedInvoices = invoices.map(invoice => {
+    const invoiceObj = invoice.toObject();
+    if (invoiceObj.patient) {
+      invoiceObj.patient.name = `${invoiceObj.patient.firstName} ${invoiceObj.patient.lastName}`;
+    }
+    return invoiceObj;
+  });
     
-  res.json(invoices);
+  res.json(formattedInvoices);
 });
 
 // @desc    Get single invoice
@@ -64,21 +73,56 @@ const createInvoice = asyncHandler(async (req, res) => {
     notes,
   } = req.body;
 
+  // Validate required fields
+  if (!patient || !type || !items || !items.length || !totalAmount || !dueDate) {
+    res.status(400);
+    throw new Error('Missing required fields: patient, type, items, totalAmount, dueDate');
+  }
+
+  // Validate that type is one of the allowed values
+  const validTypes = ['opd', 'ipd', 'pharmacy', 'lab', 'other'];
+  if (!validTypes.includes(type)) {
+    res.status(400);
+    throw new Error(`Invalid invoice type. Must be one of: ${validTypes.join(', ')}`);
+  }
+
+  // Validate items
+  const validCategories = ['bed_charges', 'doctor_fee', 'nursing', 'medication', 'procedure', 'lab_test', 'radiology', 'surgery', 'other'];
+  items.forEach((item, index) => {
+    if (!item.description || item.unitPrice === undefined || item.amount === undefined) {
+      res.status(400);
+      throw new Error(`Item ${index + 1}: Missing required fields (description, unitPrice, amount)`);
+    }
+    if (!validCategories.includes(item.category)) {
+      res.status(400);
+      throw new Error(`Item ${index + 1}: Invalid category. Must be one of: ${validCategories.join(', ')}`);
+    }
+  });
+
+  // Calculate subtotal from items if not provided
+  const calculatedSubtotal = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const finalSubtotal = subtotal || calculatedSubtotal;
+
+  // Calculate final amounts
+  const finalDiscountAmount = discountAmount || 0;
+  const finalTotalTax = totalTax || 0;
+  const finalTotalAmount = totalAmount || (finalSubtotal - finalDiscountAmount + finalTotalTax);
+
   const invoice = new Invoice({
     patient,
     admission,
     appointment,
     type,
     items,
-    subtotal,
-    discountAmount,
+    subtotal: finalSubtotal,
+    discountAmount: finalDiscountAmount,
     discountReason,
-    taxDetails,
-    totalTax,
-    totalAmount,
+    taxDetails: taxDetails || {},
+    totalTax: finalTotalTax,
+    totalAmount: finalTotalAmount,
     paidAmount: 0,
-    dueAmount: totalAmount,
-    status: status || 'pending',
+    dueAmount: finalTotalAmount,
+    status: 'pending', // Always start with pending
     dueDate,
     notes,
     generatedBy: req.user._id,
@@ -127,11 +171,21 @@ const deleteInvoice = asyncHandler(async (req, res) => {
   const invoice = await Invoice.findById(req.params.id);
 
   if (invoice) {
-    // Or maybe just mark as cancelled
-    // invoice.status = 'cancelled';
-    // await invoice.save();
-    await invoice.remove();
-    res.json({ message: 'Invoice removed' });
+    // Use soft delete - mark as cancelled instead of removing
+    if (invoice.status === 'paid' || invoice.paidAmount > 0) {
+      res.status(400);
+      throw new Error('Cannot delete invoice with payments. Mark as cancelled instead.');
+    }
+    
+    invoice.status = 'cancelled';
+    invoice.lastUpdatedBy = req.user._id;
+    await invoice.save();
+    
+    res.json({ 
+      success: true,
+      message: 'Invoice cancelled successfully',
+      invoice
+    });
   } else {
     res.status(404);
     throw new Error('Invoice not found');
@@ -143,24 +197,67 @@ const deleteInvoice = asyncHandler(async (req, res) => {
 // @access  Private
 const addPayment = asyncHandler(async (req, res) => {
     const { amount, method, reference } = req.body;
+
+    // Validate required fields
+    if (!amount || !method) {
+      res.status(400);
+      throw new Error('Missing required fields: amount, method');
+    }
+
+    if (amount <= 0) {
+      res.status(400);
+      throw new Error('Payment amount must be greater than 0');
+    }
+
+    const validMethods = ['cash', 'card', 'upi', 'net_banking', 'cheque', 'insurance'];
+    if (!validMethods.includes(method)) {
+      res.status(400);
+      throw new Error(`Invalid payment method. Must be one of: ${validMethods.join(', ')}`);
+    }
+
     const invoice = await Invoice.findById(req.params.id);
 
-    if (invoice) {
-        const payment = {
-            amount,
-            method,
-            reference,
-            receivedBy: req.user._id,
-        };
-        invoice.payments.push(payment);
-        invoice.paidAmount += amount;
-        
-        await invoice.save();
-        res.status(201).json(invoice);
-    } else {
-        res.status(404);
-        throw new Error('Invoice not found');
+    if (!invoice) {
+      res.status(404);
+      throw new Error('Invoice not found');
     }
+
+    // Prevent payment if invoice is already paid or cancelled/refunded
+    if (invoice.status === 'paid') {
+      res.status(400);
+      throw new Error('Invoice is already fully paid');
+    }
+
+    if (invoice.status === 'cancelled' || invoice.status === 'refunded') {
+      res.status(400);
+      throw new Error(`Cannot add payment to ${invoice.status} invoice`);
+    }
+
+    // Check if payment amount exceeds remaining due amount
+    if (amount > invoice.dueAmount) {
+      res.status(400);
+      throw new Error(`Payment amount (${amount}) exceeds due amount (${invoice.dueAmount})`);
+    }
+
+    const payment = {
+        amount,
+        method,
+        reference: reference || '',
+        receivedBy: req.user._id,
+    };
+
+    invoice.payments.push(payment);
+    invoice.paidAmount += amount;
+    invoice.dueAmount = invoice.totalAmount - invoice.paidAmount;
+
+    // Status will be automatically updated by the pre-save hook
+    await invoice.save();
+
+    res.status(201).json({
+      success: true,
+      message: `Payment of ₹${amount} recorded successfully`,
+      invoice
+    });
 });
 
 

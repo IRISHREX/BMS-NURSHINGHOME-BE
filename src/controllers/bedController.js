@@ -148,23 +148,47 @@ exports.createBed = async (req, res, next) => {
 // @access  Admin
 exports.updateBed = async (req, res, next) => {
   try {
-    const bed = await Bed.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    ).populate('currentPatient', 'firstName lastName patientId');
+    const { currentPatient } = req.body;
+    const bed = await Bed.findById(req.params.id);
 
     if (!bed) {
       throw new AppError('Bed not found', 404);
     }
 
+    // If patient assignment is changing
+    if (currentPatient !== bed.currentPatient?.toString()) {
+      // Update old patient if it exists
+      if (bed.currentPatient) {
+        await Patient.findByIdAndUpdate(
+          bed.currentPatient,
+          { assignedBed: null },
+          { new: true }
+        );
+      }
+
+      // Update new patient if provided
+      if (currentPatient) {
+        await Patient.findByIdAndUpdate(
+          currentPatient,
+          { assignedBed: bed._id },
+          { new: true }
+        );
+      }
+    }
+
+    const updatedBed = await Bed.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    ).populate('currentPatient', 'firstName lastName patientId');
+
     // Emit real-time update
-    emitBedUpdate(bed);
+    emitBedUpdate(updatedBed);
 
     res.json({
       success: true,
       message: 'Bed updated successfully',
-      data: { bed }
+      data: { bed: updatedBed }
     });
   } catch (error) {
     next(error);

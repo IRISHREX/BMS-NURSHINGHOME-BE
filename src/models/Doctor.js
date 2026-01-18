@@ -3,13 +3,16 @@ const mongoose = require('mongoose');
 const doctorSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
+  // Direct contact info (when user not linked)
+  name: String,
+  email: String,
+  phone: String,
   doctorId: {
     type: String,
     unique: true,
-    required: true
+    sparse: true
   },
   specialization: {
     type: String,
@@ -29,7 +32,8 @@ const doctorSchema = new mongoose.Schema({
   },
   registrationNumber: {
     type: String,
-    required: true
+    unique: true,
+    sparse: true
   },
   consultationFee: {
     opd: { type: Number, default: 500 },
@@ -86,11 +90,19 @@ doctorSchema.virtual('userDetails', {
 
 // Auto-generate doctor ID
 doctorSchema.pre('save', async function(next) {
-  if (!this.doctorId) {
-    const count = await mongoose.model('Doctor').countDocuments();
-    this.doctorId = `DOC${String(count + 1).padStart(4, '0')}`;
+  try {
+    if (!this.doctorId) {
+      const Doctor = mongoose.model('Doctor');
+      const count = await Doctor.countDocuments();
+      this.doctorId = `DOC${String(count + 1).padStart(4, '0')}`;
+    }
+    if (!this.registrationNumber) {
+      this.registrationNumber = `REG${Date.now()}`;
+    }
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 });
 
 module.exports = mongoose.model('Doctor', doctorSchema);

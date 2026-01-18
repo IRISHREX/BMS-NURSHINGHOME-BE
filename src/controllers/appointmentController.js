@@ -169,7 +169,7 @@ exports.getAppointment = async (req, res, next) => {
 // @access  Private
 exports.createAppointment = async (req, res, next) => {
   try {
-    const { patientId, doctorId, appointmentDate, timeSlot, type, reason } = req.body;
+    const { patientId, doctorId, appointmentDate, appointmentTime, reason, notes, type, status, timeSlot } = req.body;
 
     // Validate patient
     const patient = await Patient.findById(patientId);
@@ -178,31 +178,50 @@ exports.createAppointment = async (req, res, next) => {
     }
 
     // Validate doctor
-    const doctor = await Doctor.findById(doctorId).populate('user', 'firstName lastName');
+    const doctor = await Doctor.findById(doctorId);
     if (!doctor) {
       throw new AppError('Doctor not found', 404);
+    }
+
+    // Parse time slot - handle both old and new format
+    let parsedDate = new Date(appointmentDate);
+    let timeSlotObj = timeSlot;
+    
+    if (!timeSlotObj && appointmentTime) {
+      // Convert appointmentTime to time slot format
+      const [hours, minutes] = appointmentTime.split(':');
+      parsedDate = new Date(appointmentDate);
+      const endHours = parseInt(hours) + 1;
+      timeSlotObj = {
+        start: `${hours}:${minutes}`,
+        end: `${endHours}:${minutes}`
+      };
     }
 
     // Check for conflicting appointments
     const conflicting = await Appointment.findOne({
       doctor: doctorId,
-      appointmentDate: new Date(appointmentDate),
-      'timeSlot.start': timeSlot.start,
+      appointmentDate: {
+        $gte: new Date(parsedDate.toDateString()),
+        $lt: new Date(parsedDate.toDateString() + ' 23:59:59')
+      },
       status: { $nin: ['cancelled', 'no_show'] }
     });
 
-    if (conflicting) {
+    if (conflicting && conflicting.timeSlot?.start === timeSlotObj?.start) {
       throw new AppError('This time slot is already booked', 400);
     }
 
     const appointment = await Appointment.create({
       patient: patientId,
       doctor: doctorId,
-      appointmentDate,
-      timeSlot,
+      appointmentDate: parsedDate,
+      timeSlot: timeSlotObj || { start: '10:00', end: '10:30' },
       type: type || 'opd',
-      reason,
-      fee: type === 'opd' ? doctor.consultationFee.opd : doctor.consultationFee.ipd,
+      reason: reason || '',
+      notes: notes || '',
+      status: status || 'scheduled',
+      fee: type === 'opd' ? doctor.consultationFee?.opd || 500 : doctor.consultationFee?.ipd || 1000,
       createdBy: req.user._id
     });
 
@@ -217,12 +236,12 @@ exports.createAppointment = async (req, res, next) => {
       await sendEmail(patient.email, 'appointmentConfirmation', {
         patient,
         appointment: {
-          date: new Date(appointmentDate).toLocaleDateString(),
-          timeSlot: timeSlot.start,
+          date: parsedDate.toLocaleDateString(),
+          time: timeSlotObj?.start || appointmentTime,
           type
         },
-        doctor: doctor.user
-      });
+        doctor: doctor.name || doctor.user?.firstName
+      }).catch(err => console.log('Email not sent:', err));
     }
 
     res.status(201).json({

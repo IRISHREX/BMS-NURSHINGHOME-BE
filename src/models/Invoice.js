@@ -4,7 +4,8 @@ const invoiceSchema = new mongoose.Schema({
   invoiceNumber: {
     type: String,
     unique: true,
-    required: true
+    sparse: true,
+    default: null
   },
   patient: {
     type: mongoose.Schema.Types.ObjectId,
@@ -111,11 +112,15 @@ const invoiceSchema = new mongoose.Schema({
 // Auto-generate invoice number
 invoiceSchema.pre('save', async function(next) {
   if (!this.invoiceNumber) {
-    const date = new Date();
-    const year = date.getFullYear().toString().slice(-2);
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const count = await mongoose.model('Invoice').countDocuments();
-    this.invoiceNumber = `INV${year}${month}${String(count + 1).padStart(5, '0')}`;
+    try {
+      const date = new Date();
+      const year = date.getFullYear().toString().slice(-2);
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const count = await this.constructor.countDocuments();
+      this.invoiceNumber = `INV${year}${month}${String(count + 1).padStart(5, '0')}`;
+    } catch (error) {
+      return next(error);
+    }
   }
   next();
 });
