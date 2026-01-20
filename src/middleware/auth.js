@@ -114,12 +114,16 @@ const authorizeOwnerOrAdmin = (ownerField = 'user') => {
   };
 };
 
+
+
 module.exports = {
   authenticate,
   authorizeRoles,
+  authorize: authorizeRoles,
   authorizePermissions,
   authorizeOwnerOrAdmin,
   canAccess,
   roleHierarchy,
   hasPermission,
   getAllPermissions
+};
