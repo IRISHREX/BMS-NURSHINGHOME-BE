@@ -28,8 +28,12 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['super_admin', 'hospital_admin', 'doctor', 'receptionist', 'billing_staff'],
+    enum: ['super_admin', 'hospital_admin', 'doctor', 'receptionist', 'billing_staff', 'nurse'],
     required: true
+  },
+  permissions: {
+    type: [String],
+    default: []
   },
   phone: {
     type: String,

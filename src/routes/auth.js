@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
+const authController = require('../controllers/NH_authController');
 const { authenticate } = require('../middleware/auth');
 const { body } = require('express-validator');
 const validate = require('../middleware/validate');

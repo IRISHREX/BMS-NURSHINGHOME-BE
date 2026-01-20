@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const doctorController = require('../controllers/doctorController');
-const { authenticate } = require('../middleware/auth');
+const doctorController = require('../controllers/NH_doctorController');
+const { authenticate, authorize } = require('../middleware/auth');
 const { body } = require('express-validator');
 const validate = require('../middleware/validate');
 
 router.post('/', [
   authenticate,
+  authorize('hospital_admin', 'super_admin'),
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('phone').trim().notEmpty().withMessage('Phone is required'),
@@ -18,8 +19,8 @@ router.post('/', [
 
 router.get('/', authenticate, doctorController.getDoctors);
 router.get('/:id', authenticate, doctorController.getDoctor);
-router.put('/:id', authenticate, doctorController.updateDoctor);
-router.patch('/:id/availability', authenticate, doctorController.updateAvailability);
-router.delete('/:id', authenticate, doctorController.deleteDoctor);
+router.put('/:id', authenticate, authorize('hospital_admin', 'super_admin'), doctorController.updateDoctor);
+router.patch('/:id/availability', authenticate, authorize('hospital_admin', 'super_admin', 'doctor'), doctorController.updateAvailability);
+router.delete('/:id', authenticate, authorize('hospital_admin', 'super_admin'), doctorController.deleteDoctor);
 
 module.exports = router;

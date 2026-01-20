@@ -1,6 +1,6 @@
-const Invoice = require('../models/Invoice');
-const Patient = require('../models/Patient');
-const Admission = require('../models/Admission');
+const Invoice = require('../models/NH_Invoice');
+const Patient = require('../models/NH_Patient');
+const Admission = require('../models/NH_Admission');
 const asyncHandler = require('express-async-handler');
 
 // @desc    Get all invoices

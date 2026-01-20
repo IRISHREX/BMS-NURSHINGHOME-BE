@@ -1,9 +1,9 @@
 const asyncHandler = require('express-async-handler');
-const Admission = require('../models/Admission');
-const Invoice = require('../models/Invoice');
-const Patient = require('../models/Patient');
-const Appointment = require('../models/Appointment');
-const Bed = require('../models/Bed');
+const Admission = require('../models/NH_Admission');
+const Invoice = require('../models/NH_Invoice');
+const Patient = require('../models/NH_Patient');
+const Appointment = require('../models/NH_Appointment');
+const Bed = require('../models/NH_Bed');
 
 // @desc    Get key performance indicators
 // @route   GET /api/reports/kpis

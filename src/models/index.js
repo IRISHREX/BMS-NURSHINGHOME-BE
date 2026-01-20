@@ -1,12 +1,12 @@
-const User = require('./User');
-const Patient = require('./Patient');
-const Doctor = require('./Doctor');
-const Bed = require('./Bed');
-const Admission = require('./Admission');
-const Appointment = require('./Appointment');
-const Facility = require('./Facility');
-const Invoice = require('./Invoice');
-const Notification = require('./Notification');
+const User = require('./NH_User');
+const Patient = require('./NH_Patient');
+const Doctor = require('./NH_Doctor');
+const Bed = require('./NH_Bed');
+const Admission = require('./NH_Admission');
+const Appointment = require('./NH_Appointment');
+const Facility = require('./NH_Facility');
+const Invoice = require('./NH_Invoice');
+const Notification = require('./NH_Notification');
 
 module.exports = {
   User,

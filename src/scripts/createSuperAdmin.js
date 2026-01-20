@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const User = require('../models/NH_User');
 
 const createSuperAdmin = async () => {
   try {

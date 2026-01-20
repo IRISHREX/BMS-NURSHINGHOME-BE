@@ -4,7 +4,7 @@ const passport = require('passport');
 const authenticate = passport.authenticate('jwt', { session: false });
 
 // Role-based access control middleware
-const authorize = (...allowedRoles) => {
+const authorizeRoles = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -13,7 +13,6 @@ const authorize = (...allowedRoles) => {
       });
     }
 
-    // Modify this part to use canAccess
     const userRole = req.user.role;
     const hasPermission = allowedRoles.some(requiredRole => canAccess(userRole, requiredRole));
 
@@ -28,13 +27,69 @@ const authorize = (...allowedRoles) => {
   };
 };
 
+// Permission-based access control middleware
+const authorizePermissions = (...requiredPermissions) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    if (!req.user.permissions || req.user.permissions.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have any permissions assigned'
+      });
+    }
+    
+    // Check if the user has any of the required permissions
+    const hasRequiredPermission = requiredPermissions.some(permission => 
+      req.user.permissions.includes(permission)
+    );
+
+    if (!hasRequiredPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have sufficient permissions to access this resource'
+      });
+    }
+
+    next();
+  };
+};
+
+// Helper function to check if a user has a specific permission
+const hasPermission = (user, permission) => {
+  return user && user.permissions && user.permissions.includes(permission);
+};
+
+// Placeholder for all possible permissions in the system
+const allPermissions = [
+  'user:read', 'user:write', 'user:delete', // User management
+  'patient:read', 'patient:write', 'patient:delete', // Patient management
+  'bed:read', 'bed:write', 'bed:delete', 'bed:changeStatus', // Bed management
+  'facility:read', 'facility:write', 'facility:delete', // Facility management
+  'doctor:read', 'doctor:write', 'doctor:delete', // Doctor management
+  'appointment:read', 'appointment:write', 'appointment:delete', // Appointment management
+  'invoice:read', 'invoice:write', 'invoice:delete', // Invoice management
+  'report:read', 'report:write', // Report management
+  'settings:manage', // General settings management
+];
+
+const getAllPermissions = () => {
+  return allPermissions;
+};
+
 // Role hierarchy for easier permission checks
 const roleHierarchy = {
-  super_admin: ['super_admin', 'hospital_admin', 'doctor', 'receptionist', 'billing_staff'],
-  hospital_admin: ['hospital_admin', 'doctor', 'receptionist', 'billing_staff'],
+  super_admin: ['super_admin', 'hospital_admin', 'doctor', 'receptionist', 'billing_staff', 'nurse'],
+  hospital_admin: ['hospital_admin', 'doctor', 'receptionist', 'billing_staff', 'nurse'],
   doctor: ['doctor'],
-  receptionist: ['receptionist'],
-  billing_staff: ['billing_staff']
+  receptionist: ['receptionist', 'nurse'],
+  billing_staff: ['billing_staff'],
+  nurse: ['nurse']
 };
 
 // Check if user can access based on hierarchy
@@ -61,8 +116,10 @@ const authorizeOwnerOrAdmin = (ownerField = 'user') => {
 
 module.exports = {
   authenticate,
-  authorize,
+  authorizeRoles,
+  authorizePermissions,
   authorizeOwnerOrAdmin,
   canAccess,
-  roleHierarchy
-};
+  roleHierarchy,
+  hasPermission,
+  getAllPermissions

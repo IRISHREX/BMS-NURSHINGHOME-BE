@@ -2,7 +2,7 @@ const passport = require('passport');
 const { Strategy: LocalStrategy } = require('passport-local');
 const { Strategy: JwtStrategy, ExtractJwt } = require('passport-jwt');
 const bcrypt = require('bcryptjs');
-const User = require('../models/User');
+const User = require('../models/NH_User');
 const config = require('./index');
 
 // Local Strategy for login

@@ -30,7 +30,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api', require('./routes'));
+app.use('/', require('./routes'));
 
 // Error handler
 app.use(errorHandler);

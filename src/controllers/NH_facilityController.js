@@ -1,4 +1,4 @@
-const Facility = require('../models/Facility');
+const Facility = require('../models/NH_Facility');
 const asyncHandler = require('express-async-handler');
 
 // @desc    Get all facilities
