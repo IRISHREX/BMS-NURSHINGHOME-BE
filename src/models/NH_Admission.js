@@ -13,13 +13,11 @@ const admissionSchema = new mongoose.Schema({
   },
   bed: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Bed',
-    required: true
+    ref: 'Bed'
   },
   admittingDoctor: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Doctor',
-    required: true
+    ref: 'Doctor'
   },
   attendingDoctors: [{
     type: mongoose.Schema.Types.ObjectId,

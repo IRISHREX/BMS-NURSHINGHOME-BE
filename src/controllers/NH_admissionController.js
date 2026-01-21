@@ -25,12 +25,18 @@ exports.createAdmission = async (req, res, next) => {
       symptoms = [],
       treatmentPlan,
       expectedDischargeDate,
-      notes
+      notes,
+      facility
     } = req.body;
 
     // Validate required fields
-    if (!patientId || !bedId || !admittingDoctorId || !admissionType) {
-      throw new AppError('Missing required fields: patientId, bedId, admittingDoctorId, admissionType', 400);
+    if (!patientId || !admissionType) {
+      throw new AppError('Missing required fields: patientId, admissionType', 400);
+    }
+
+    // For IPD admissions, bed and doctor are required
+    if (admissionType === 'elective' && (!bedId || !admittingDoctorId)) {
+      throw new AppError('For IPD admissions, bedId and admittingDoctorId are required', 400);
     }
 
     // Check if patient exists
@@ -48,26 +54,29 @@ exports.createAdmission = async (req, res, next) => {
       throw new AppError('Patient already has an active admission', 400);
     }
 
-    // Check if bed exists and is available
-    const bed = await Bed.findById(bedId);
-    if (!bed) {
-      throw new AppError('Bed not found', 404);
-    }
+    // Check if bed exists and is available (only for IPD/elective admissions)
+    let bed = null;
+    if (bedId) {
+      bed = await Bed.findById(bedId);
+      if (!bed) {
+        throw new AppError('Bed not found', 404);
+      }
 
-    if (bed.status !== 'available') {
-      throw new AppError(`Bed is not available. Current status: ${bed.status}`, 400);
+      if (bed.status !== 'available') {
+        throw new AppError(`Bed is not available. Current status: ${bed.status}`, 400);
+      }
     }
 
     // Generate unique admission ID
     const admissionCount = await Admission.countDocuments();
     const admissionId = `ADM${Date.now()}-${admissionCount + 1}`;
 
-    // Create admission record
+    // Create admission record - bed and doctor are optional for Emergency/OPD
     const admission = new Admission({
       admissionId,
       patient: patientId,
-      bed: bedId,
-      admittingDoctor: admittingDoctorId,
+      ...(bedId && { bed: bedId }),
+      ...(admittingDoctorId && { admittingDoctor: admittingDoctorId }),
       attendingDoctors,
       admissionDate: new Date(),
       expectedDischargeDate,
@@ -81,55 +90,78 @@ exports.createAdmission = async (req, res, next) => {
 
     await admission.save();
 
-    // Update bed status
-    bed.status = 'occupied';
-    bed.currentPatient = patientId;
-    bed.currentAdmission = admission._id;
-    bed.lastOccupied = new Date();
-    await bed.save();
+    // Update bed status only if bed was provided
+    if (bed) {
+      bed.status = 'occupied';
+      bed.currentPatient = patientId;
+      bed.currentAdmission = admission._id;
+      bed.lastOccupied = new Date();
+      await bed.save();
+    }
 
     // Update patient's assigned bed and admission
-    await Patient.findByIdAndUpdate(
-      patientId,
-      { 
-        assignedBed: bedId,
-        currentAdmission: admission._id,
-        admissionStatus: 'ADMITTED'
-      },
-      { new: true }
-    );
+    const patientUpdateData = { 
+      currentAdmission: admission._id,
+      admissionStatus: 'ADMITTED'
+    };
+    if (bedId) {
+      patientUpdateData.assignedBed = bedId;
+    }
+    await Patient.findByIdAndUpdate(patientId, patientUpdateData, { new: true });
 
-    // Create initial invoice for the admission
-    const pricePerDay = bed.pricePerDay;
-    const invoiceAmount = pricePerDay; // Initial charge for first day
+    // Create initial invoice only for IPD admissions with bed
+    let invoice = null;
+    if (bed) {
+      const pricePerDay = bed.pricePerDay;
+      const invoiceAmount = pricePerDay; // Initial charge for first day
 
-    const invoice = new Invoice({
-      patient: patientId,
-      admission: admission._id,
-      type: 'ipd',
-      status: 'draft',
-      items: [
-        {
-          description: `Bed charges - ${bed.bedType} (${bed.bedNumber})`,
-          category: 'bed_charges',
-          quantity: 1,
-          unitPrice: pricePerDay,
-          discount: 0,
-          tax: 0,
-          amount: pricePerDay
-        }
-      ],
-      subtotal: invoiceAmount,
-      discountAmount: 0,
-      totalTax: 0,
-      totalAmount: invoiceAmount,
-      paidAmount: 0,
-      dueAmount: invoiceAmount,
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-      notes: `Invoice for admission - ${admission.admissionId}`
-    });
+      invoice = new Invoice({
+        patient: patientId,
+        admission: admission._id,
+        type: 'ipd',
+        status: 'draft',
+        items: [
+          {
+            description: `Bed charges - ${bed.bedType} (${bed.bedNumber})`,
+            category: 'bed_charges',
+            quantity: 1,
+            unitPrice: pricePerDay,
+            discount: 0,
+            tax: 0,
+            amount: pricePerDay
+          }
+        ],
+        subtotal: invoiceAmount,
+        discountAmount: 0,
+        totalTax: 0,
+        totalAmount: invoiceAmount,
+        paidAmount: 0,
+        dueAmount: invoiceAmount,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        notes: `Invoice for admission - ${admission.admissionId}`
+      });
 
-    await invoice.save();
+      await invoice.save();
+    } else {
+      // For Emergency/OPD, create a basic invoice without bed charges
+      invoice = new Invoice({
+        patient: patientId,
+        admission: admission._id,
+        type: admissionType === 'emergency' ? 'emergency' : 'opd',
+        status: 'draft',
+        items: [],
+        subtotal: 0,
+        discountAmount: 0,
+        totalTax: 0,
+        totalAmount: 0,
+        paidAmount: 0,
+        dueAmount: 0,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        notes: `Invoice for ${admissionType} admission - ${admission.admissionId}`
+      });
+
+      await invoice.save();
+    }
 
     // Populate response
     const populatedAdmission = await Admission.findById(admission._id)

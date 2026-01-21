@@ -247,15 +247,28 @@ exports.assignBed = async (req, res, next) => {
       throw new AppError('Patient not found', 404);
     }
 
+    // Check if patient is not already admitted
+    const activeAdmission = await Admission.findOne({
+      patient: patientId,
+      status: 'ADMITTED'
+    });
+    if (activeAdmission) {
+      throw new AppError('Patient already has an active admission. Cannot assign bed until discharge.', 400);
+    }
+
     bed.status = 'occupied';
     bed.currentPatient = patientId;
     bed.currentAdmission = admissionId;
     bed.lastOccupied = new Date();
     await bed.save();
 
-    // Update patient status
-    patient.status = 'admitted';
-    await patient.save();
+    // Update patient's assignedBed but DO NOT change admission status
+    // Admission status should only be updated when an actual admission record is created
+    await Patient.findByIdAndUpdate(
+      patientId,
+      { assignedBed: bed._id },
+      { new: true }
+    );
 
     await bed.populate('currentPatient', 'firstName lastName patientId');
 
