@@ -78,8 +78,8 @@ const admissionSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['admitted', 'discharged', 'transferred', 'deceased'],
-    default: 'admitted'
+    enum: ['ADMITTED', 'TRANSFERRED', 'DISCHARGED', 'DECEASED'],
+    default: 'ADMITTED'
   },
   dischargeNotes: String,
   dischargeSummary: String,
@@ -91,7 +91,62 @@ const admissionSchema = new mongoose.Schema({
   admittedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
-  }
+  },
+  dischargingDoctor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Doctor'
+  },
+  // Bed allocation tracking for service utilization
+  bedAllocations: [{
+    bed: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Bed',
+      required: true
+    },
+    allocatedFrom: {
+      type: Date,
+      required: true
+    },
+    allocatedTo: {
+      type: Date,
+      required: true
+    },
+    pricePerDay: {
+      type: Number,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['ALLOCATED', 'RELEASED'],
+      default: 'ALLOCATED'
+    },
+    allocatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  // Transfer history for tracking patient movements
+  transferHistory: [{
+    fromBed: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Bed'
+    },
+    toBed: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Bed'
+    },
+    fromWard: String,
+    toWard: String,
+    transferDate: {
+      type: Date,
+      default: Date.now
+    },
+    transferReason: String,
+    transferredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
+  }]
 }, {
   timestamps: true,
   toJSON: { virtuals: true },

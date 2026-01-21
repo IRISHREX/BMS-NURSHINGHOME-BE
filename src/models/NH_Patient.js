@@ -87,6 +87,16 @@ const patientSchema = new mongoose.Schema({
   registeredBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  // Admission tracking
+  currentAdmission: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admission'
+  },
+  admissionStatus: {
+    type: String,
+    enum: ['ADMITTED', 'DISCHARGED', 'TRANSFERRED'],
+    default: 'DISCHARGED'
   }
 }, {
   timestamps: true,
